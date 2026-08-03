@@ -1,0 +1,36 @@
+services:
+  # Back-end: Spring Boot API built from the `back` target of the Dockerfile
+  back:
+    build:
+      context: .
+      target: back
+    image: microcrm-back:local
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/persons"]
+      interval: 30s
+      timeout: 3s
+      start_period: 30s
+      retries: 5
+    restart: unless-stopped
+
+  # Front-end: Angular static bundle served by Caddy, built from the `front` target
+  front:
+    build:
+      context: .
+      target: front
+    image: microcrm-front:local
+    ports:
+      - "8082:80"
+    depends_on:
+      back:
+        condition: service_healthy
+          
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/"]
+      interval: 30s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+    restart: unless-stopped

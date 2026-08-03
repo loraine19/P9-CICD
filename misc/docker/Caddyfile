@@ -1,0 +1,20 @@
+# Caddy config for the front-end container.
+# Listen on :80 in plain HTTP. TLS is the ingress/reverse-proxy's job,
+# not the app container's. The old `*` site address triggered Caddy's
+# automatic HTTPS, which broke local and CI runs.
+:80 {
+	root * /srv
+	encode gzip
+
+	# Security headers (OWASP)
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	# SPA: unknown routes fall back to index.html so the Angular router takes over
+	try_files {path} /index.html
+	file_server
+}

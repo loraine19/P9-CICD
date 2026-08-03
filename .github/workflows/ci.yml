@@ -1,0 +1,209 @@
+name: CI
+
+on:
+    push:
+        branches: [main, develop]
+    pull_request:
+        branches: [main, develop]
+    workflow_dispatch:
+
+concurrency:
+    group: ci-${{ github.ref }}
+    cancel-in-progress: true
+
+permissions:
+    contents: read
+
+env:
+    JAVA_VERSION: "17"
+    NODE_VERSION: "22"
+
+jobs:
+    back:
+        name: Back-end (Spring Boot / Gradle)
+        runs-on: ubuntu-latest
+        steps:
+            # Checkout the repository code
+            - uses: actions/checkout@v4
+
+            # Set up the JDK used to build and test the back-end
+            - uses: actions/setup-java@v4
+              with:
+                  distribution: temurin
+                  java-version: ${{ env.JAVA_VERSION }}
+
+            # Set up Gradle with build caching
+            - uses: gradle/actions/setup-gradle@v4
+
+            # Compile, run tests and generate the Jacoco coverage report
+            - name: Build, test and coverage
+              working-directory: back
+              run: ./gradlew --no-daemon build jacocoTestReport
+
+            # Publish test reports and coverage as build artifacts
+            - name: Upload test reports
+              if: always() # keep reports even on failure
+              uses: actions/upload-artifact@v4
+              with:
+                  name: back-test-reports
+                  path: |
+                      back/build/reports/tests/test
+                      back/build/reports/jacoco/test
+                  retention-days: 7
+
+            # Publish the built JAR as a build artifact
+            - name: Upload JAR
+              uses: actions/upload-artifact@v4
+              with:
+                  name: back-jar
+                  path: back/build/libs/*.jar
+                  retention-days: 7
+
+            # Publish compiled classes and coverage data for later Sonar analysis
+            - name: Upload analysis data # classes + coverage for Sonar
+              uses: actions/upload-artifact@v4
+              with:
+                  name: back-analysis
+                  path: |
+                      back/build/classes/java/main
+                      back/build/reports/jacoco/test/jacocoTestReport.xml
+                  retention-days: 1
+
+    front:
+        name: Front-end (Angular / npm)
+        runs-on: ubuntu-latest
+        steps:
+            # Checkout the repository code
+            - uses: actions/checkout@v4
+
+            # Set up Node.js and enable npm dependency caching
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: ${{ env.NODE_VERSION }}
+                  cache: npm
+                  cache-dependency-path: front/package-lock.json
+
+            # Install npm dependencies from the lockfile
+            - name: Install dependencies
+              working-directory: front
+              run: npm ci # deterministic install
+
+            # Run unit tests headlessly and collect code coverage
+            - name: Unit tests and coverage # Chromium preinstalled on the runner
+              working-directory: front
+              run: npm test -- --watch=false --browsers=ChromeHeadlessNoSandbox --code-coverage
+
+            # Build the Angular app in production mode
+            - name: Production build
+              working-directory: front
+              run: npm run build -- --configuration production
+
+            # Publish coverage results as a build artifact
+            - name: Upload coverage report
+              if: always()
+              uses: actions/upload-artifact@v4
+              with:
+                  name: front-coverage
+                  path: front/coverage
+                  retention-days: 7
+
+            # Publish the production build output as a build artifact
+            - name: Upload Angular bundle
+              uses: actions/upload-artifact@v4
+              with:
+                  name: front-dist
+                  path: front/dist/microcrm
+                  retention-days: 7
+
+    sonar:
+        name: SonarQube Cloud analysis
+        runs-on: ubuntu-latest
+        needs: [back, front]
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository # skip on forks
+        steps:
+            # Checkout the full git history so Sonar can detect new code
+            - uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0 # full history for new-code detection
+
+            # Retrieve back-end compiled classes and coverage from the back job
+            - name: Download back analysis data
+              uses: actions/download-artifact@v4
+              with:
+                  name: back-analysis
+                  path: back/build
+
+            # Retrieve front-end coverage from the front job
+            - name: Download front coverage
+              uses: actions/download-artifact@v4
+              with:
+                  name: front-coverage
+                  path: front/coverage
+
+            # Run the SonarQube Cloud analysis on both back-end and front-end data
+            - name: Sonar scan
+              uses: SonarSource/sonarqube-scan-action@v5
+              env:
+                  SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+    docker:
+        name: Build images and smoke test
+        runs-on: ubuntu-latest
+        needs: [back, front]
+        steps:
+            # Checkout the repository code
+            - uses: actions/checkout@v4
+
+            # Set up Docker Buildx for building images with caching
+            - uses: docker/setup-buildx-action@v3
+
+            # Build the back-end Docker image from the back stage of the Dockerfile
+            - name: Build back-end image
+              uses: docker/build-push-action@v6
+              with:
+                  context: .
+                  target: back
+                  tags: microcrm-back:ci
+                  load: true
+                  cache-from: type=gha
+                  cache-to: type=gha,mode=max
+
+            # Build the front-end Docker image from the front stage of the Dockerfile
+            - name: Build front-end image
+              uses: docker/build-push-action@v6
+              with:
+                  context: .
+                  target: front
+                  tags: microcrm-front:ci
+                  load: true
+                  cache-from: type=gha
+                  cache-to: type=gha,mode=max
+
+            # Start the back-end container and poll until the API responds
+            - name: Smoke test - API responds # start container, not just build
+              run: |
+                  docker run -d --name back -p 8080:8080 microcrm-back:ci
+                  for i in $(seq 1 30); do
+                    if curl -fsS http://localhost:8080/persons > /dev/null; then
+                      echo "API up"; exit 0
+                    fi
+                    sleep 2
+                  done
+                  echo "API failed to start"; docker logs back; exit 1
+
+            # Start the front-end container and poll until the page is served
+            - name: Smoke test - front is served
+              run: |
+                  docker run -d --name front -p 8081:80 microcrm-front:ci
+                  for i in $(seq 1 15); do
+                    if curl -fsS http://localhost:8081 | grep -q "<app-root"; then
+                      echo "Front served"; exit 0
+                    fi
+                    sleep 2
+                  done
+                  echo "Front not served"; docker logs front; exit 1
+
+            # Clean up the containers regardless of the smoke test outcome
+            - name: Stop containers
+              if: always()
+              run: docker rm -f back front || true
