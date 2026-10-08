@@ -1,4 +1,5 @@
 # dependabot opens a PR for each update, ci.yml checks it before we merge
+# one grouped PR per ecosystem per week, majors are done by hand
 version: 2
 updates:
     # back (gradle)
@@ -6,22 +7,30 @@ updates:
       directory: /back
       schedule:
           interval: weekly
-      open-pull-requests-limit: 5
       commit-message:
           prefix: "chore(deps)" # chore = no release from semantic-release
+      ignore:
+          - dependency-name: "*"
+            update-types: ["version-update:semver-major"] # Spring Boot 4, Gradle 9...
+      groups:
+          gradle-minor-patch:
+              update-types: ["minor", "patch"]
 
     # front (npm)
     - package-ecosystem: npm
       directory: /front
       schedule:
           interval: weekly
-      open-pull-requests-limit: 5
       commit-message:
           prefix: "chore(deps)"
       ignore:
-          # major upgrades (Angular...) are done by hand
           - dependency-name: "*"
-            update-types: ["version-update:semver-major"]
+            update-types: ["version-update:semver-major"] # Angular majors
+          - dependency-name: "zone.js"
+            update-types: ["version-update:semver-minor"] # 0.x: minor = breaking, tied to Angular
+      groups:
+          npm-minor-patch: # Angular packages move together
+              update-types: ["minor", "patch"]
 
     # actions used in the workflows
     - package-ecosystem: github-actions
@@ -30,6 +39,12 @@ updates:
           interval: weekly
       commit-message:
           prefix: "ci"
+      ignore:
+          - dependency-name: "*"
+            update-types: ["version-update:semver-major"]
+      groups:
+          actions-minor-patch:
+              update-types: ["minor", "patch"]
 
     # base images in the Dockerfile
     - package-ecosystem: docker
@@ -38,3 +53,6 @@ updates:
           interval: weekly
       commit-message:
           prefix: "chore(deps)"
+      ignore:
+          - dependency-name: "*"
+            update-types: ["version-update:semver-major"] # Java 17 -> 25, Node 22 -> 26

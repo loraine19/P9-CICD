@@ -225,9 +225,11 @@ La release construit les artefacts (sans rejouer les tests, déjà exécutés pa
 ### `dependabot.yml` : mises à jour des dépendances
 
 Vérification hebdomadaire de Gradle (`/back`), npm (`/front`), des actions
-GitHub et des images Docker. Chaque mise à jour arrive en pull request et
-passe par `ci.yml` avant fusion. Les montées de version majeures npm
-(Angular) sont exclues : elles relèvent d'une décision projet.
+GitHub et des images Docker. Les mises à jour mineures et correctifs sont
+regroupés en une seule pull request par écosystème, validée par `ci.yml` avant
+fusion. Les montées de version majeures (Spring Boot, Gradle, Angular, images
+Java/Node) sont exclues partout : elles se font à la main. Le job Sonar est
+ignoré sur les PR Dependabot, car GitHub ne leur transmet pas les secrets.
 
 ---
 
