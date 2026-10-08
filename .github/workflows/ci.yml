@@ -39,7 +39,7 @@ jobs:
 
             - name: Upload test reports
               if: always()
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@v6
               with:
                   name: back-test-reports
                   path: |
@@ -48,7 +48,7 @@ jobs:
                   retention-days: 7
 
             - name: Upload JAR
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@v6
               with:
                   name: back-jar
                   path: back/build/libs/*.jar
@@ -56,7 +56,7 @@ jobs:
 
             # sonar job needs the compiled classes, not just the jar
             - name: Upload analysis data
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@v6
               with:
                   name: back-analysis
                   path: |
@@ -91,14 +91,14 @@ jobs:
 
             - name: Upload coverage report
               if: always()
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@v6
               with:
                   name: front-coverage
                   path: front/coverage
                   retention-days: 7
 
             - name: Upload Angular bundle
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@v6
               with:
                   name: front-dist
                   path: front/dist/microcrm
