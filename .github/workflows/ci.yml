@@ -115,13 +115,13 @@ jobs:
                   fetch-depth: 0
 
             - name: Download back analysis data
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@v7
               with:
                   name: back-analysis
                   path: back/build
 
             - name: Download front coverage
-              uses: actions/download-artifact@v4
+              uses: actions/download-artifact@v7
               with:
                   name: front-coverage
                   path: front/coverage
