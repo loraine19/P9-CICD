@@ -15,7 +15,7 @@
 # =============================================================================
 # Step 1 — Build the Angular front-end
 # =============================================================================
-FROM node:22-alpine AS front-build
+FROM node:26-alpine AS front-build
 
 WORKDIR /src
 
