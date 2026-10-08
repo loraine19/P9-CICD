@@ -30,7 +30,7 @@ RUN npm run build -- --configuration production
 # =============================================================================
 # Step 2 — Build the Spring Boot back-end
 # =============================================================================
-FROM eclipse-temurin:17-jdk-alpine AS back-build
+FROM eclipse-temurin:25-jdk-alpine AS back-build
 
 WORKDIR /src
 
@@ -64,7 +64,7 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
 # =============================================================================
 # Step 4 — Back-end runtime image
 # =============================================================================
-FROM eclipse-temurin:17-jre-alpine AS back
+FROM eclipse-temurin:25-jre-alpine AS back
 
 # Non-privileged user: limits the impact of a container compromise.
 RUN addgroup -S spring && adduser -S spring -G spring
