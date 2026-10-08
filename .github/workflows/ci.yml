@@ -128,7 +128,7 @@ jobs:
 
             # secrets are not available on forks, hence the if on the job
             - name: Sonar scan
-              uses: SonarSource/sonarqube-scan-action@v5
+              uses: SonarSource/sonarqube-scan-action@v8
               env:
                   SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
