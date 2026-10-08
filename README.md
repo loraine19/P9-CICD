@@ -2,7 +2,7 @@
    <img src="./front/src/favicon.png" width="192px" />
 </p>
 
-# MicroCRM — Chaîne CI/CD (Option B)
+# MicroCRM : Chaîne CI/CD (Option B)
 
 [![CI](https://github.com/loraine19/p9-cicd/actions/workflows/ci.yml/badge.svg)](https://github.com/loraine19/p9-cicd/actions/workflows/ci.yml)
 [![Nightly](https://github.com/loraine19/p9-cicd/actions/workflows/nightly.yml/badge.svg)](https://github.com/loraine19/p9-cicd/actions/workflows/nightly.yml)
@@ -13,7 +13,7 @@ Industrialisation de la chaîne d'intégration et de déploiement continus de
 
 Ce dépôt contient les workflows GitHub Actions, les Dockerfiles, l'orchestration
 Docker Compose et la configuration d'analyse SonarQube Cloud. La documentation
-technique détaillée se trouve dans [`OPCR/documentation.md`](./OPCR/documentation.md).
+technique détaillée est livrée séparément (PDF).
 
 ---
 
@@ -28,6 +28,7 @@ technique détaillée se trouve dans [`OPCR/documentation.md`](./OPCR/documentat
 - [Publier une version](#publier-une-version)
 - [Configuration requise du dépôt](#configuration-requise-du-dépôt)
 - [Choix techniques](#choix-techniques)
+- [Pistes d'amélioration](#pistes-damélioration)
 
 ---
 
@@ -37,22 +38,20 @@ technique détaillée se trouve dans [`OPCR/documentation.md`](./OPCR/documentat
 .
 ├── .github/
 │   ├── workflows/
-│   │   ├── ci.yml          Build, tests, Sonar, images, scan   (push / PR)
-│   │   ├── release.yml     Publication images + release GitHub (tag vX.Y.Z)
-│   │   └── nightly.yml     Non-régression + veille sécurité    (planifié)
+│   │   ├── ci.yml          Build, tests, Sonar, images + smoke test (push / PR)
+│   │   ├── release.yml     semantic-release + images GHCR           (après CI verte)
+│   │   └── nightly.yml     Tests + stack docker compose             (planifié)
 │   └── dependabot.yml      Mises à jour automatisées des dépendances
-├── back/                   API Spring Boot 3.2.5 — Java 17, Gradle 8.7
-├── front/                  Client Angular 17 — npm, Karma/Jasmine
+├── back/                   API Spring Boot 3.2.5 : Java 17, Gradle 8.7
+├── front/                  Client Angular 17 : npm, Karma/Jasmine
 ├── misc/docker/            Configuration Caddy du conteneur front
-├── OPCR/                   Documentation technique et livrables
 ├── Dockerfile              Build multi-stage (cibles `front` et `back`)
 ├── docker-compose.yml      Orchestration locale
 └── sonar-project.properties
 ```
 
-> **Note** — le back-end est construit avec **Gradle** (et non Maven) : le dépôt
-> fourni embarque un wrapper Gradle 8.7. La chaîne CI/CD a été alignée sur cet
-> outillage existant plutôt que de migrer le projet.
+Le back-end utilise Gradle (pas Maven) : le dépôt fourni embarque déjà un
+wrapper Gradle 8.7, donc la CI/CD s'est alignée dessus au lieu de migrer.
 
 ---
 
@@ -66,7 +65,7 @@ docker compose up --build
 
 | Service   | URL                   |
 | --------- | --------------------- |
-| Front-end | http://localhost:4200 |
+| Front-end | http://localhost:8082 |
 | API       | http://localhost:8080 |
 
 Le front n'est démarré qu'une fois l'API déclarée saine (`healthcheck`).
@@ -74,8 +73,11 @@ Pour arrêter : `docker compose down`.
 
 ### Utiliser les images publiées
 
+Chaque release publie les images sur GHCR, taguées avec la version et `latest` :
+
 ```bash
-TAG=v1.0.0 REGISTRY=ghcr.io/loraine19 docker compose up
+docker pull ghcr.io/loraine19/p9-cicd-back:latest
+docker pull ghcr.io/loraine19/p9-cicd-front:latest
 ```
 
 ---
@@ -84,16 +86,16 @@ TAG=v1.0.0 REGISTRY=ghcr.io/loraine19 docker compose up
 
 Prérequis : **JDK 17** (voir avertissement ci-dessous), **Node.js 22**, **npm ≥ 10**.
 
-> ⚠️ **Le JDK doit être en version 17 ou 21, pas au-delà.** Le projet utilise le
-> wrapper Gradle 8.7, qui ne supporte pas Java 22+. Avec un JDK plus récent
-> (Java 25 par ex.), le build échoue avec `Unsupported class file major version`.
-> Si `java -version` affiche autre chose que 17/21, installez et ciblez un JDK 17 :
->
-> ```bash
-> # Debian / Ubuntu / ChromeOS (Crostini)
-> sudo apt update && sudo apt install -y openjdk-17-jdk
-> export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64   # adaptez via `ls /usr/lib/jvm/`
-> ```
+Attention, il faut un JDK 17 ou 21, pas plus récent : le wrapper Gradle 8.7 ne
+gère pas Java 22+. Avec Java 25 par exemple, le build plante avec
+`Unsupported class file major version`. Si `java -version` n'affiche ni 17 ni 21,
+installez un JDK 17 :
+
+```bash
+# Debian / Ubuntu / ChromeOS (Crostini)
+sudo apt update && sudo apt install -y openjdk-17-jdk
+export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64   # adaptez via `ls /usr/lib/jvm/`
+```
 
 <details>
 <summary><strong>Back-end</strong></summary>
@@ -123,12 +125,14 @@ npm run build              # bundle de production dans dist/microcrm/browser
 
 ## Tests
 
-| Commande                     | Où elle est définie               | Ce qu'elle fait                         | Quand elle s'exécute           |
-| ---------------------------- | --------------------------------- | --------------------------------------- | ------------------------------ |
-| `./gradlew build`            | `back/build.gradle`               | Compile et lance les tests JUnit 5      | CI (push/PR), nightly, release |
-| `./gradlew jacocoTestReport` | `back/build.gradle`               | Produit le XML de couverture pour Sonar | CI, nightly                    |
-| `npm test`                   | `front/package.json` → `ng test`  | Lance les specs Jasmine dans Karma      | CI (push/PR), nightly, release |
-| `npm run build`              | `front/package.json` → `ng build` | Bundle de production                    | CI, release                    |
+| Commande                     | Où elle est définie               | Ce qu'elle fait                         | Quand elle s'exécute  |
+| ---------------------------- | --------------------------------- | --------------------------------------- | --------------------- |
+| `./gradlew build`            | `back/build.gradle`               | Compile et lance les tests JUnit 5      | CI (push/PR), nightly |
+| `./gradlew jacocoTestReport` | `back/build.gradle`               | Produit le XML de couverture pour Sonar | CI                    |
+| `npm test`                   | `front/package.json` → `ng test`  | Lance les specs Jasmine dans Karma      | CI (push/PR), nightly |
+| `npm run build`              | `front/package.json` → `ng build` | Bundle de production                    | CI, release           |
+
+La release ne rejoue pas les tests : ils sont exécutés par `ci.yml`.
 
 En local :
 
@@ -138,7 +142,7 @@ cd back && ./gradlew test
 ```
 
 ```bash
-# Front-end — un navigateur Chrome/Chromium doit être installé.
+# Front-end : un navigateur Chrome/Chromium doit être installé.
 # `ng test` seul tente de lancer Chrome en fenêtré et échoue en headless :
 # utilisez toujours le launcher ChromeHeadlessNoSandbox.
 sudo apt install -y chromium            # si aucun Chrome n'est installé
@@ -159,20 +163,20 @@ npm test -- --watch=false --browsers=ChromeHeadlessNoSandbox --code-coverage
 
 ### Vulnérabilités npm
 
-`npm ci` signale ~85 vulnérabilités : **~77 sont dans l'outillage de build**
-(webpack, karma…) qui **n'est jamais déployé**. Seules **8** concernent le code
-livré (production), toutes dans Angular 17 lui-même.
+`npm audit` remonte beaucoup de vulnérabilités, mais la grande majorité vient de
+l'outillage de build (webpack, karma…), qui n'est jamais déployé. Pour voir ce
+qui touche vraiment la production : `npm audit --omit=dev`. Le reste concerne
+Angular 17.
 
-- **Ne pas exécuter `npm audit fix --force`** : cela casse Angular.
-- Vérifier ce qui touche réellement la production : `npm audit --omit=dev`.
-- La correction de fond (montée d'Angular) est hors périmètre de la mission et
-  suivie par Dependabot + SonarCloud (cf. plan de sécurité, documentation §5).
+Ne pas lancer `npm audit fix --force` : ça casse Angular. La montée de version
+d'Angular est hors périmètre de la mission, Dependabot et SonarCloud la suivent
+(cf. plan de sécurité, documentation §5).
 
 ---
 
 ## La chaîne CI/CD
 
-### `ci.yml` — intégration continue
+### `ci.yml` : intégration continue
 
 Déclenché sur `push` (`main`, `develop`), sur `pull_request` et manuellement.
 
@@ -184,31 +188,46 @@ Déclenché sur `push` (`main`, `develop`), sur `pull_request` et manuellement.
               ┌──────┴───────┐
         ┌─────┴─────┐  ┌─────┴──────┐
         │   sonar   │  │   docker   │   analyse qualité / build + smoke test
-        └───────────┘  └─────┬──────┘
-                             │
-                       ┌─────┴─────┐
-                       │   scan    │   vulnérabilités des images (Trivy)
-                       └───────────┘
+        └───────────┘  └────────────┘
 ```
 
-Les jobs `back` et `front` sont indépendants : ils s'exécutent en parallèle pour
-réduire le temps de retour au développeur. `sonar` et `docker` attendent leurs
-artefacts.
+`back` et `front` sont indépendants et tournent en parallèle, ce qui raccourcit
+l'attente. `sonar` et `docker` attendent leurs artefacts.
 
-Le job `docker` ne se contente pas de construire les images : il les **démarre**
-et vérifie que l'API répond sur `/persons` et que le front sert bien l'application.
+Le job `docker` ne fait pas que construire les images : il les démarre et vérifie que l'API répond sur `/persons` et que le front sert bien l'application.
 
-### `nightly.yml` — testing périodique
+### `nightly.yml` : testing périodique
 
-Planifié du lundi au vendredi à 03h00 UTC. Rejoue l'intégralité des tests,
-démarre la stack complète via `docker compose` et scanne les dépendances.
-Objectif : détecter les régressions liées à l'environnement (nouvelles CVE,
-dérive des images de base) et non au code.
+Planifié tous les jours à 03h00 UTC, et lançable manuellement
+(`workflow_dispatch`). Elle rejoue les tests back et front, construit les deux
+images et démarre la stack complète via `docker compose` (attente des
+healthchecks, puis appel de l'API et du front).
+Le but est d'attraper les régressions venant de l'environnement (images de base,
+runners, registres) plutôt que d'un changement de code.
 
-### `release.yml` — déploiement continu
+### `release.yml` : déploiement continu
 
-Déclenché par un tag SemVer. Rejoue les tests, publie les images sur GHCR et
-crée la release GitHub avec les artefacts.
+Déclenché quand `ci.yml` se termine sur `main` (`workflow_run`), et seulement
+si la CI est verte : aucune version n'est publiée si un test échoue.
+semantic-release lit ensuite les messages de commit (Conventional Commits) et
+décide s'il faut publier une version :
+
+| Type de commit                 | Effet                 |
+| ------------------------------ | --------------------- |
+| `fix:`                         | PATCH (1.0.0 → 1.0.1) |
+| `feat:`                        | MINOR (1.0.0 → 1.1.0) |
+| `feat!:` ou `BREAKING CHANGE:` | MAJOR (1.0.0 → 2.0.0) |
+| `ci:`, `chore:`, `docs:`…      | aucune version        |
+
+La release construit les artefacts (sans rejouer les tests, déjà exécutés par
+`ci.yml`), puis publie les images sur GHCR si une version est créée.
+
+### `dependabot.yml` : mises à jour des dépendances
+
+Vérification hebdomadaire de Gradle (`/back`), npm (`/front`), des actions
+GitHub et des images Docker. Chaque mise à jour arrive en pull request et
+passe par `ci.yml` avant fusion. Les montées de version majeures npm
+(Angular) sont exclues : elles relèvent d'une décision projet.
 
 ---
 
@@ -226,34 +245,33 @@ docker build --target back  -t microcrm-back:local  .
 docker build --target front -t microcrm-front:local .
 ```
 
-Principes appliqués :
-
-- **images officielles, minimales et versionnées** — jamais de tag `latest` ;
-- **séparation build / runtime** — ni JDK ni `node_modules` dans l'image finale ;
-- **utilisateur non privilégié** pour le back-end ;
-- **un processus par conteneur** — l'orchestration est le rôle de Compose ;
-- **healthchecks** exploités par `depends_on: condition: service_healthy`.
+Quelques règles suivies : images officielles, minimales et versionnées (pas de
+`latest` en base) ; build et runtime séparés, donc ni JDK ni `node_modules` dans
+l'image finale ; utilisateur non privilégié pour le back-end ; un processus par
+conteneur, Compose s'occupe de l'orchestration. Les healthchecks servent à
+`depends_on: condition: service_healthy` et à `docker compose up --wait` dans la
+nightly.
 
 ---
 
 ## Publier une version
 
-Le versionnement suit **SemVer** (`MAJOR.MINOR.PATCH`). La mise en production
-est une décision humaine explicite : elle est déclenchée par la pose d'un tag.
+Le versionnement suit SemVer (`MAJOR.MINOR.PATCH`). On ne pose aucun tag à la
+main : tout se joue dans le message de commit.
 
 ```bash
-git tag -a v1.0.0 -m "Première version stable"
-git push origin v1.0.0
+git commit -m "feat: add organization search"   # → version MINOR
+git push origin main
 ```
 
-Le workflow produit alors :
+Le push lance la CI. Si elle est verte, la release démarre.
 
-- les images `ghcr.io/loraine19/p9-cicd-back` et `-front`, taguées `1.0.0`, `1.0` et `latest` ;
-- une release GitHub contenant le JAR, le bundle Angular zippé et les sommes SHA-256 ;
-- un changelog généré à partir des pull requests fusionnées.
+Si une version est créée, le workflow produit :
 
-Une pré-version (`v1.0.0-rc.1`) est automatiquement marquée _pre-release_ et ne
-reçoit pas le tag `latest`.
+- le tag `vX.Y.Z` et la release GitHub contenant le JAR, le bundle Angular
+  zippé et les sommes SHA-256 ;
+- le fichier `CHANGELOG.md`, mis à jour par un commit `chore(release)` ;
+- les images `ghcr.io/loraine19/p9-cicd-back` et `-front`, taguées `X.Y.Z` et `latest`.
 
 ---
 
@@ -261,31 +279,45 @@ reçoit pas le tag `latest`.
 
 Avant la première exécution complète de la CI :
 
-1. **SonarQube Cloud** — créer le projet sur [sonarcloud.io](https://sonarcloud.io),
-   puis reporter `sonar.projectKey` et `sonar.organization` dans
-   `sonar-project.properties`.
-2. **Secret `SONAR_TOKEN`** — _Settings → Secrets and variables → Actions →
+1. **SonarQube Cloud** : créer le projet sur [sonarcloud.io](https://sonarcloud.io).
+   `sonar.projectKey` et `sonar.organization` sont déjà renseignés dans
+   `sonar-project.properties` ; ils doivent correspondre au projet créé.
+2. **Secret `SONAR_TOKEN`** : _Settings → Secrets and variables → Actions →
    New repository secret_. Aucun secret n'est stocké dans le dépôt : les
    workflows les lisent exclusivement via `${{ secrets.* }}`.
-3. **GHCR** — aucune configuration : les workflows s'authentifient avec le
+3. **GHCR** : aucune configuration, les workflows s'authentifient avec le
    `GITHUB_TOKEN` éphémère du job.
-4. **Permissions** — _Settings → Actions → General_ : autoriser la lecture et
+4. **Permissions** : dans _Settings → Actions → General_, autoriser la lecture et
    l'écriture pour le workflow de release.
+5. **Dependabot** : activé automatiquement par la présence de
+   `.github/dependabot.yml`.
 
 ---
 
 ## Choix techniques
 
-| Décision                       | Justification                                                                                       |
-| ------------------------------ | --------------------------------------------------------------------------------------------------- |
-| **GitHub Actions**             | Natif au dépôt, aucun serveur à maintenir, secrets et registre intégrés.                            |
-| **Gradle conservé**            | Le projet embarque un wrapper Gradle 8.7 ; migrer vers Maven aurait ajouté un risque sans bénéfice. |
-| **Jobs parallèles**            | Le retour d'erreur au développeur est donné par le composant le plus rapide.                        |
-| **`npm ci` / wrapper Gradle**  | Builds reproductibles : versions figées par le lockfile et le wrapper.                              |
-| **GHCR plutôt que Docker Hub** | Authentification par `GITHUB_TOKEN`, pas de compte ni de secret externe à gérer.                    |
-| **Release sur tag**            | Sépare l'intégration continue (automatique) de la livraison (décision humaine tracée).              |
-| **Trivy**                      | Équivalent libre et maintenu de Twistlock, s'intègre nativement à GitHub Security.                  |
-| **Dependabot**                 | Les montées de version arrivent en PR et sont validées par la CI avant fusion.                      |
+| Décision                          | Justification                                                                                       |
+| --------------------------------- | --------------------------------------------------------------------------------------------------- |
+| **GitHub Actions**                | Natif au dépôt, aucun serveur à maintenir, secrets et registre intégrés.                            |
+| **Gradle conservé**               | Le projet embarque un wrapper Gradle 8.7 ; migrer vers Maven aurait ajouté un risque sans bénéfice. |
+| **Jobs parallèles**               | Le retour d'erreur au développeur est donné par le composant le plus rapide.                        |
+| **`npm ci` / wrapper Gradle**     | Builds reproductibles : versions figées par le lockfile et le wrapper.                              |
+| **GHCR plutôt que Docker Hub**    | Authentification par `GITHUB_TOKEN`, pas de compte ni de secret externe à gérer.                    |
+| **semantic-release**              | Version calculée depuis les commits : pas de tag manuel, changelog et release générés.              |
+| **Tests dans `ci.yml` seulement** | Les tests ne sont exécutés qu'une fois ; la release ne fait que construire et publier.              |
+| **Release après CI verte**        | `workflow_run` : règle de semantic-release, publier seulement après la réussite de tous les tests.  |
+| **Nightly**                       | Détecte les régressions d'environnement sans attendre un commit.                                    |
+| **Dependabot**                    | Les montées de version arrivent en PR et sont validées par la CI avant fusion.                      |
+
+---
+
+## Pistes d'amélioration
+
+- **Scan des images (Trivy)** : équivalent libre de Twistlock, à ajouter à la
+  nightly pour détecter les CVE des images et des dépendances. Non mis en place
+  à ce jour ; SonarCloud couvre l'analyse du code.
+- **Protection de la branche `main`** : fusion uniquement par pull request,
+  avec la CI verte obligatoire.
 
 ---
 
